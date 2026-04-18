@@ -1,0 +1,17 @@
+[Unit]
+Description=Monad Node Monitor Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/home/admin/monad-node-bot
+ExecStart=/home/admin/monad-node-bot/venv/bin/python bot.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
