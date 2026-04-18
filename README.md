@@ -99,3 +99,7 @@ All settings are in `.env`:
 ## License
 
 MIT
+
+---
+
+Built with the help of [Claude](https://claude.ai) (Anthropic).

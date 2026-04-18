@@ -1,3 +1,4 @@
+# Built with the help of Claude (Anthropic) — https://claude.ai
 import logging
 import logging.handlers
 import sys
