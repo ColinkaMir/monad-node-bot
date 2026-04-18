@@ -2,6 +2,25 @@
 
 A Telegram bot for monitoring Monad testnet nodes. Get instant alerts when your node goes down, stops producing blocks, or falls behind the network.
 
+## 🤖 Use the live bot
+
+The bot is already running — no setup needed:
+
+**[@MonadBeaconBot](https://t.me/MonadBeaconBot)**
+
+### Add your node in 3 steps
+
+1. Open [@MonadBeaconBot](https://t.me/MonadBeaconBot) in Telegram and tap **Start**
+2. Send your node's RPC URL:
+   ```
+   /add http://YOUR_SERVER_IP:8080
+   ```
+3. Done. The bot checks your node every minute and alerts you if anything goes wrong.
+
+Run `/status` to see the current health of your node at any time.
+
+---
+
 ## Features
 
 - **Reachability check** — detects when your node's RPC endpoint stops responding
