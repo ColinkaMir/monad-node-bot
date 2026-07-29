@@ -27,7 +27,7 @@ Run `/status` to see the current health of your node at any time.
 - **Block progress check** — alerts if block height doesn't change for 3+ minutes
 - **Lag detection** — compares your node's block with the public network RPC; alerts if you're more than 10 blocks behind
 - **Recovery notifications** — notifies you when a node comes back online
-- **No spam** — each issue triggers exactly one alert; you're notified again only when it's resolved or a new issue occurs
+- **No spam** — short RPC blips are ignored; by default unreachable alerts fire only after 3 continuous minutes of failure, and recovery is sent only if an actual outage alert was already sent
 - **Multi-user** — any operator can use the bot; each user manages their own nodes independently (up to 5 per user)
 
 ## Commands
@@ -86,9 +86,8 @@ python bot.py
 # Copy service file
 sudo cp monad-node-bot.service /etc/systemd/system/
 
-# Create log file
-sudo touch /var/log/monad-node-bot.log
-sudo chown admin:admin /var/log/monad-node-bot.log
+# Optional: create local logs directory ahead of time
+mkdir -p logs
 
 # Enable and start
 sudo systemctl daemon-reload
@@ -108,17 +107,19 @@ All settings are in `.env`:
 |----------|---------|-------------|
 | `BOT_TOKEN` | — | **Required.** Telegram bot token |
 | `REFERENCE_RPC` | `https://rpc-testnet.monadinfra.com` | Public RPC used for lag comparison |
+| `VDP_API_BASE` | `https://prooflines.org/monad/vdp-api/api` | Public VDP tracker API used for validator-program alerts |
+| `VDP_CHECK_INTERVAL` | `60` | Seconds between VDP / validator-program polling cycles |
+| `FOUNDATION_DELEGATION_SCAN_SECONDS` | `300` | Seconds between deeper Foundation delegation scans through the staking precompile |
+| `STAKING_PRECOMPILE_ADDRESS` | `0x0000000000000000000000000000000000001000` | Monad staking precompile used for direct delegation reads |
 | `CHECK_INTERVAL` | `60` | Seconds between checks |
+| `UNREACHABLE_ALERT_MINUTES` | `3` | Minutes an RPC endpoint must remain unreachable before sending an outage alert |
 | `BLOCK_STUCK_MINUTES` | `3` | Minutes before reporting a stuck block |
 | `LAG_THRESHOLD` | `10` | Max allowed block difference before alerting |
 | `MAX_NODES_PER_USER` | `5` | Maximum nodes per Telegram user |
 | `DB_PATH` | `nodes.db` | Path to SQLite database |
-| `LOG_FILE` | `/var/log/monad-node-bot.log` | Log file path |
+| `LOG_FILE` | `./logs/monad-node-bot.log` | Log file path; defaults to a user-writable logs directory inside the bot workspace |
 
 ## License
 
 MIT
 
----
-
-Built with the help of [Claude](https://claude.ai) (Anthropic).

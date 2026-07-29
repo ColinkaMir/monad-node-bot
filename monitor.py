@@ -39,13 +39,11 @@ def _determine_status(
     if block is None:
         return "unreachable", prev_block, last_block_changed_at
 
-    # Update changed_at whenever block advances or on first check
     if prev_block is None or block != prev_block:
         new_changed_at = now_str
     else:
         new_changed_at = last_block_changed_at or now_str
 
-    # Stuck check: block hasn't moved for BLOCK_STUCK_MINUTES
     if block == prev_block and last_block_changed_at:
         changed_at = datetime.fromisoformat(last_block_changed_at)
         if changed_at.tzinfo is None:
@@ -54,7 +52,6 @@ def _determine_status(
         if stuck_seconds > config.BLOCK_STUCK_MINUTES * 60:
             return "stuck", block, new_changed_at
 
-    # Lag check: node block is behind the reference
     if ref_block is not None and ref_block - block > config.LAG_THRESHOLD:
         return "lagging", block, new_changed_at
 
@@ -73,20 +70,20 @@ async def _send_alert(
 
     if status == "unreachable":
         text = (
-            f"🔴 *Node unreachable*\n"
+            "🔴 *Node unreachable*\n"
             f"`{rpc_url}`\n"
             f"Last known block: {block_str}"
         )
     elif status == "stuck":
         text = (
-            f"🟡 *Block not progressing*\n"
+            "🟠 *Block not progressing*\n"
             f"`{rpc_url}`\n"
             f"Stuck at block {block_str} for >{config.BLOCK_STUCK_MINUTES} minutes"
         )
     elif status == "lagging":
         diff = (ref_block - block) if ref_block and block else "?"
         text = (
-            f"🟡 *Node is lagging behind*\n"
+            "🟠 *Node is lagging behind*\n"
             f"`{rpc_url}`\n"
             f"Node: {block_str} | Network: {ref_block:,} | Behind: {diff} blocks"
         )
@@ -109,7 +106,7 @@ async def _send_recovery(
 ):
     block_str = f"{block:,}" if block is not None else "N/A"
     text = (
-        f"✅ *Node recovered*\n"
+        "✅ *Node recovered*\n"
         f"`{rpc_url}`\n"
         f"Current block: {block_str}"
     )
@@ -119,6 +116,29 @@ async def _send_recovery(
         )
     except Exception as e:
         logger.error("Failed to send recovery to %s: %s", user_id, e)
+
+
+def _status_since_for_cycle(
+    prev_status: str,
+    prev_status_since: Optional[str],
+    new_status: str,
+    now: datetime,
+) -> str:
+    if new_status != prev_status:
+        return now.isoformat()
+    return prev_status_since or now.isoformat()
+
+
+def _status_duration_seconds(status_since: Optional[str], now: datetime) -> float:
+    if not status_since:
+        return 0.0
+    try:
+        started_at = datetime.fromisoformat(status_since)
+    except ValueError:
+        return 0.0
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=timezone.utc)
+    return max((now - started_at).total_seconds(), 0.0)
 
 
 async def check_all_nodes(context: CallbackContext):
@@ -152,6 +172,7 @@ async def _process_node(
     rpc_url = node["rpc_url"]
     prev_status = node["status"]
     prev_alerted = node["alerted"]
+    prev_status_since = node.get("status_since")
 
     block = await get_block_number(rpc_url, session)
 
@@ -164,22 +185,47 @@ async def _process_node(
     )
 
     new_alerted = prev_alerted
+    new_status_since = _status_since_for_cycle(
+        prev_status,
+        prev_status_since,
+        new_status,
+        now,
+    )
 
-    # Status changed — decide whether to alert or send recovery
+    now_ts = int(now.timestamp())
+
     if new_status != prev_status:
         if new_status == "ok" and prev_status not in ("ok", "unknown"):
-            await _send_recovery(context, user_id, rpc_url, new_block)
+            if prev_alerted:
+                await _send_recovery(context, user_id, rpc_url, new_block)
             new_alerted = 0
         elif new_status != "ok":
-            # New type of problem — reset so alert fires below
+            # new/changed problem -> reset so the first alert fires this cycle
             new_alerted = 0
 
-    # Fire alert once per problem
-    if new_status != "ok" and not new_alerted:
-        await _send_alert(context, user_id, rpc_url, new_status, new_block, ref_block)
-        new_alerted = 1
+    if new_status != "ok":
+        # unreachable is debounced (transient RPC blips); stuck/lagging are already threshold-gated
+        debounced = True
+        if new_status == "unreachable":
+            unreachable_seconds = _status_duration_seconds(new_status_since, now)
+            debounced = unreachable_seconds >= config.UNREACHABLE_ALERT_MINUTES * 60
 
-    db.update_node(node_id, new_block, new_changed_at, new_status, new_alerted)
+        # escalation: first alert immediately (once debounced), then repeat every ALERT_REPEAT_MINUTES
+        repeat_secs = config.ALERT_REPEAT_MINUTES * 60
+        due = (not new_alerted) or ((now_ts - new_alerted) >= repeat_secs)
+
+        if debounced and due:
+            await _send_alert(context, user_id, rpc_url, new_status, new_block, ref_block)
+            new_alerted = now_ts
+
+    db.update_node(
+        node_id,
+        new_block,
+        new_changed_at,
+        new_status_since,
+        new_status,
+        new_alerted,
+    )
     logger.debug(
         "Node %s user=%s status=%s block=%s", rpc_url, user_id, new_status, new_block
     )
